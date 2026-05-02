@@ -6,7 +6,8 @@ Modul untuk mendownload video dari YouTube menggunakan yt-dlp
 import os
 import subprocess
 import json
-from typing import Optional, Dict, Any
+import re
+from typing import Optional, Dict, Any, Callable
 
 
 def get_video_info(url: str, verbose: bool = False) -> Optional[Dict[str, Any]]:
@@ -65,7 +66,8 @@ def download_video(
     url: str,
     output_dir: str = 'output',
     quality: str = 'best',
-    verbose: bool = False
+    verbose: bool = False,
+    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None
 ) -> Optional[str]:
     """
     Download video dari YouTube
@@ -75,6 +77,7 @@ def download_video(
         output_dir: Folder tujuan download
         quality: Kualitas video (best, worst, atau format spesifik)
         verbose: Tampilkan output detail
+        progress_callback: Callback untuk melaporkan progress download
 
     Returns:
         Path ke file video yang didownload atau None jika gagal
@@ -109,29 +112,43 @@ def download_video(
         if verbose:
             print(f"[DEBUG] Menjalankan: {' '.join(cmd)}")
 
-        result = subprocess.run(
+        process = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            timeout=600  # 10 menit timeout untuk download
+            bufsize=1,
+            universal_newlines=True
         )
 
-        if result.returncode != 0:
-            print(f"[ERROR] Gagal download: {result.stderr}")
+        output_path = None
+        for line in process.stdout:
+            if verbose:
+                print(line, end='')
+            
+            # Parse progress percentage
+            # [download]  10.0% of 100.00MiB at  1.00MiB/s ETA 01:30
+            match = re.search(r'\[download\]\s+(\d+\.\d+)%', line)
+            if match and progress_callback:
+                progress_callback({'percentage': float(match.group(1))})
+            
+            # Capture output path from yt-dlp --print
+            stripped_line = line.strip()
+            if stripped_line and not stripped_line.startswith('[') and os.path.exists(stripped_line):
+                output_path = stripped_line
+
+        process.wait()
+
+        if process.returncode != 0:
+            print(f"[ERROR] Gagal download. Exit code: {process.returncode}")
             return None
 
-        # Ambil path file dari output
-        output_path = result.stdout.strip().split('\n')[-1]
-
-        if os.path.exists(output_path):
+        if output_path and os.path.exists(output_path):
             return output_path
 
         # Fallback: cari file yang baru dibuat di output_dir
         return _find_latest_video(output_dir)
 
-    except subprocess.TimeoutExpired:
-        print("[ERROR] Timeout saat mendownload video")
-        return None
     except FileNotFoundError:
         print("[ERROR] yt-dlp tidak ditemukan. Install dengan: pip install yt-dlp")
         return None

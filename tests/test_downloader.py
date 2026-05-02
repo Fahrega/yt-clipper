@@ -86,15 +86,23 @@ class TestDownloadVideo(unittest.TestCase):
         """Cleanup temporary directory"""
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    @patch('downloader.subprocess.run')
+    @patch('downloader.subprocess.Popen')
     @patch('downloader._find_latest_video')
-    def test_download_video_success(self, mock_find, mock_run):
+    def test_download_video_success(self, mock_find, mock_popen):
         """Test download video berhasil"""
         expected_path = os.path.join(self.temp_dir, 'test.mp4')
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=expected_path
-        )
+        
+        # Mock Popen process
+        mock_process = MagicMock()
+        mock_process.stdout = [
+            '[download]  10.0% of 100.00MiB',
+            '[download] 100.0% of 100.00MiB',
+            expected_path
+        ]
+        mock_process.wait.return_value = 0
+        mock_process.returncode = 0
+        mock_popen.return_value = mock_process
+        
         mock_find.return_value = expected_path
 
         # Buat file dummy
@@ -108,13 +116,14 @@ class TestDownloadVideo(unittest.TestCase):
 
         self.assertIsNotNone(result)
 
-    @patch('downloader.subprocess.run')
-    def test_download_video_failure(self, mock_run):
+    @patch('downloader.subprocess.Popen')
+    def test_download_video_failure(self, mock_popen):
         """Test download video gagal"""
-        mock_run.return_value = MagicMock(
-            returncode=1,
-            stderr='Download error'
-        )
+        mock_process = MagicMock()
+        mock_process.stdout = ['Error message']
+        mock_process.wait.return_value = 1
+        mock_process.returncode = 1
+        mock_popen.return_value = mock_process
 
         result = download_video(
             "https://www.youtube.com/watch?v=test",
@@ -123,13 +132,14 @@ class TestDownloadVideo(unittest.TestCase):
 
         self.assertIsNone(result)
 
-    @patch('downloader.subprocess.run')
-    def test_download_video_creates_output_dir(self, mock_run):
+    @patch('downloader.subprocess.Popen')
+    def test_download_video_creates_output_dir(self, mock_popen):
         """Test download membuat direktori output"""
-        mock_run.return_value = MagicMock(
-            returncode=1,
-            stderr='Error'
-        )
+        mock_process = MagicMock()
+        mock_process.stdout = []
+        mock_process.wait.return_value = 1
+        mock_process.returncode = 1
+        mock_popen.return_value = mock_process
 
         new_dir = os.path.join(self.temp_dir, 'new_output')
         download_video(

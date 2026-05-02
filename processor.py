@@ -6,7 +6,8 @@ Output: Portrait 9:16, video di-crop untuk memenuhi layar (center crop)
 
 import os
 import subprocess
-from typing import Optional
+import re
+from typing import Optional, Callable
 from datetime import datetime
 from tracker import analyze_faces
 
@@ -43,7 +44,8 @@ def process_clip(
     clip_index: Optional[int] = None,
     use_face_tracking: bool = False,
     blur_background: bool = False,
-    verbose: bool = False
+    verbose: bool = False,
+    progress_callback: Optional[Callable[[float], None]] = None
 ) -> Optional[str]:
     """
     Proses clip menjadi format TikTok (9:16 portrait dengan center crop, face tracking, atau blur background)
@@ -58,6 +60,7 @@ def process_clip(
         use_face_tracking: Gunakan AI face tracking
         blur_background: Gunakan background blur jika aspect ratio tidak pas
         verbose: Tampilkan output detail
+        progress_callback: Callback untuk melaporkan progress (0.0 - 1.0)
 
     Returns:
         Path ke file output atau None jika gagal
@@ -85,13 +88,20 @@ def process_clip(
             print("[INFO] Menganalisis wajah untuk tracking...")
         
         tracking_cmd_path = output_path + ".tracker.txt"
+        
+        # Tracker progress is first 50%
+        def tracker_progress(p):
+            if progress_callback:
+                progress_callback(p * 0.5)
+
         success = analyze_faces(
             video_path=input_path,
             start_time=start_time,
             duration=end_time - start_time,
             target_width=width,
             target_height=height,
-            output_cmd_path=tracking_cmd_path
+            output_cmd_path=tracking_cmd_path,
+            progress_callback=tracker_progress if progress_callback else None
         )
         
         if not success:
@@ -112,6 +122,14 @@ def process_clip(
     # Hitung durasi
     duration = end_time - start_time
 
+    # FFmpeg progress is second 50% if tracking is used, otherwise 100%
+    def ffmpeg_progress(p):
+        if progress_callback:
+            if use_face_tracking:
+                progress_callback(0.5 + p * 0.5)
+            else:
+                progress_callback(p)
+
     # Build FFmpeg command untuk TikTok format
     success = _run_ffmpeg_tiktok(
         input_path=input_path,
@@ -121,7 +139,8 @@ def process_clip(
         preset=preset,
         tracking_cmd_path=tracking_cmd_path,
         blur_background=blur_background,
-        verbose=verbose
+        verbose=verbose,
+        progress_callback=ffmpeg_progress if progress_callback else None
     )
 
     # Cleanup tracking file
@@ -129,6 +148,9 @@ def process_clip(
         os.remove(tracking_cmd_path)
 
     if success and os.path.exists(output_path):
+        # Ensure 100% progress at the end
+        if progress_callback:
+            progress_callback(1.0)
         return output_path
     else:
         return None
@@ -167,7 +189,8 @@ def _run_ffmpeg_tiktok(
     preset: dict,
     tracking_cmd_path: Optional[str] = None,
     blur_background: bool = False,
-    verbose: bool = False
+    verbose: bool = False,
+    progress_callback: Optional[Callable[[float], None]] = None
 ) -> bool:
     """
     Jalankan FFmpeg untuk membuat video TikTok format
@@ -229,34 +252,35 @@ def _run_ffmpeg_tiktok(
 
     try:
         # Jalankan FFmpeg
-        if verbose:
-            # Tampilkan progress
-            result = subprocess.run(
-                cmd,
-                capture_output=False,
-                timeout=600  # 10 menit timeout
-            )
-        else:
-            # Suppress output
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                timeout=600
-            )
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True
+        )
 
-        if result.returncode != 0:
-            if not verbose and hasattr(result, 'stderr'):
-                print(f"[ERROR] FFmpeg error: {result.stderr.decode()}")
+        for line in process.stdout:
+            if verbose:
+                print(line, end='')
+            
+            # Parse progress
+            # time=00:00:07.40
+            match = re.search(r'time=(\d+):(\d+):(\d+\.\d+)', line)
+            if match and progress_callback:
+                hours, minutes, seconds = map(float, match.groups())
+                current_time = hours * 3600 + minutes * 60 + seconds
+                progress = min(1.0, current_time / duration)
+                progress_callback(progress)
+
+        process.wait()
+
+        if process.returncode != 0:
             return False
 
         return True
 
-    except subprocess.TimeoutExpired:
-        print("[ERROR] Timeout saat memproses video")
-        return False
-    except FileNotFoundError:
-        print("[ERROR] FFmpeg tidak ditemukan. Pastikan FFmpeg sudah terinstall.")
-        return False
     except Exception as e:
         print(f"[ERROR] Gagal memproses video: {str(e)}")
         return False

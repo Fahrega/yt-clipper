@@ -173,8 +173,8 @@ def run_manual_mode(
     end_time: str,
     output_dir: str,
     quality: str,
-    use_face_tracking: bool,
-    verbose: bool
+    use_face_tracking: bool = False,
+    verbose: bool = False
 ) -> Optional[str]:
     """
     Jalankan mode manual: clip video dari start ke end time
@@ -208,7 +208,7 @@ def run_auto_mode(
     min_duration: int,
     max_duration: int,
     quality: str,
-    use_face_tracking: bool,
+    use_face_tracking: bool = False,
     start_time: Optional[str] = None,
     end_time: Optional[str] = None,
     verbose: bool = False

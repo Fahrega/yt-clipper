@@ -163,10 +163,14 @@ class TestRunFfmpegTiktok(unittest.TestCase):
         """Cleanup temporary directory"""
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    @patch('processor.subprocess.run')
-    def test_ffmpeg_success(self, mock_run):
+    @patch('processor.subprocess.Popen')
+    def test_ffmpeg_success(self, mock_popen):
         """Test FFmpeg berhasil"""
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_process = MagicMock()
+        mock_process.stdout = ['time=00:00:10.00']
+        mock_process.wait.return_value = 0
+        mock_process.returncode = 0
+        mock_popen.return_value = mock_process
 
         result = _run_ffmpeg_tiktok(
             input_path='/input/video.mp4',
@@ -178,13 +182,14 @@ class TestRunFfmpegTiktok(unittest.TestCase):
 
         self.assertTrue(result)
 
-    @patch('processor.subprocess.run')
-    def test_ffmpeg_failure(self, mock_run):
+    @patch('processor.subprocess.Popen')
+    def test_ffmpeg_failure(self, mock_popen):
         """Test FFmpeg gagal"""
-        mock_run.return_value = MagicMock(
-            returncode=1,
-            stderr=b'Error encoding video'
-        )
+        mock_process = MagicMock()
+        mock_process.stdout = ['Error message']
+        mock_process.wait.return_value = 1
+        mock_process.returncode = 1
+        mock_popen.return_value = mock_process
 
         result = _run_ffmpeg_tiktok(
             input_path='/input/video.mp4',
@@ -196,11 +201,10 @@ class TestRunFfmpegTiktok(unittest.TestCase):
 
         self.assertFalse(result)
 
-    @patch('processor.subprocess.run')
-    def test_ffmpeg_timeout(self, mock_run):
-        """Test FFmpeg timeout"""
-        import subprocess
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd='ffmpeg', timeout=600)
+    @patch('processor.subprocess.Popen')
+    def test_ffmpeg_exception(self, mock_popen):
+        """Test FFmpeg exception"""
+        mock_popen.side_effect = Exception("error")
 
         result = _run_ffmpeg_tiktok(
             input_path='/input/video.mp4',
@@ -212,25 +216,14 @@ class TestRunFfmpegTiktok(unittest.TestCase):
 
         self.assertFalse(result)
 
-    @patch('processor.subprocess.run')
-    def test_ffmpeg_not_found(self, mock_run):
-        """Test FFmpeg tidak ditemukan"""
-        mock_run.side_effect = FileNotFoundError()
-
-        result = _run_ffmpeg_tiktok(
-            input_path='/input/video.mp4',
-            output_path=os.path.join(self.temp_dir, 'output.mp4'),
-            start_time=0,
-            duration=30,
-            preset=QUALITY_PRESETS['medium']
-        )
-
-        self.assertFalse(result)
-
-    @patch('processor.subprocess.run')
-    def test_ffmpeg_command_content(self, mock_run):
+    @patch('processor.subprocess.Popen')
+    def test_ffmpeg_command_content(self, mock_popen):
         """Test isi command FFmpeg untuk memastikan filter yang benar digunakan"""
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_process = MagicMock()
+        mock_process.stdout = []
+        mock_process.wait.return_value = 0
+        mock_process.returncode = 0
+        mock_popen.return_value = mock_process
 
         preset = QUALITY_PRESETS['medium']
         width, height = map(int, preset['resolution'].split('x'))
@@ -244,8 +237,8 @@ class TestRunFfmpegTiktok(unittest.TestCase):
             preset=preset
         )
 
-        # Ambil argument yang dipanggil ke subprocess.run
-        cmd = mock_run.call_args[0][0]
+        # Ambil argument yang dipanggil ke subprocess.Popen
+        cmd = mock_popen.call_args[0][0]
 
         # Pastikan menggunakan -vf dan bukan -filter_complex
         self.assertIn('-vf', cmd)

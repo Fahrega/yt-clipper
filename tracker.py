@@ -8,7 +8,7 @@ import os
 import cv2
 import mediapipe as mp
 import numpy as np
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Callable
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
@@ -23,7 +23,8 @@ def analyze_faces(
     target_height: int,
     output_cmd_path: str,
     fps_sampling: float = 5.0,
-    smoothing_window: int = 5
+    smoothing_window: int = 5,
+    progress_callback: Optional[Callable[[float], None]] = None
 ) -> bool:
     """
     Analisis wajah dalam video dan buat file perintah FFmpeg sendcmd
@@ -59,6 +60,10 @@ def analyze_faces(
     start_frame = int(start_time * fps)
     total_frames = int(duration * fps)
     sample_interval = max(1, int(fps / fps_sampling))
+    
+    # Calculate how many frames we will sample for progress reporting
+    total_samples = len(range(0, total_frames, sample_interval))
+    samples_count = 0
 
     with vision.FaceDetector.create_from_options(options) as detector:
         for i in range(0, total_frames, sample_interval):
@@ -88,6 +93,10 @@ def analyze_faces(
                 raw_coords.append((current_time, center_x, center_y))
             else:
                 raw_coords.append((current_time, 0.5, 0.5))
+            
+            samples_count += 1
+            if progress_callback:
+                progress_callback(samples_count / total_samples)
 
     cap.release()
 
